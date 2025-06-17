@@ -92,20 +92,11 @@ def train_tokenizer():
     print("Initializing tokenizer with byte fallback...")
     tokenizer = Tokenizer(models.BPE())
 
-    # Use ByteLevel pre-tokenizer with prefix space handling
-    # This handles both space-separated and non-space-separated languages properly
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(
-        add_prefix_space=True  # This preserves spaces correctly
-    )
-    # Use ByteLevel decoder with leading space trimming
-    tokenizer.decoder = decoders.Sequence(
-        [
-            decoders.ByteLevel(),
-            decoders.Strip(
-                content=" ", left=True, right=False
-            ),  # Remove leading space only
-        ]
-    )
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+
+    # The decoder must be the corresponding ByteLevel decoder to ensure
+    # the process is perfectly reversible.
+    tokenizer.decoder = decoders.ByteLevel()
 
     # Conservative normalization for multilingual support
     print("Setting up conservative normalization...")
