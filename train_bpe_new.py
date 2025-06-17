@@ -4,8 +4,11 @@ Improved multilingual tokenizer training with streaming support.
 Unicode-friendly BPE with byte fallback, proper normalization, and multiple datasets.
 """
 
+import os
 from pathlib import Path
 from typing import Iterator
+
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 from datasets import interleave_datasets, load_dataset
 from tokenizers import (
@@ -89,18 +92,20 @@ def train_tokenizer():
     print("Initializing tokenizer with byte fallback...")
     tokenizer = Tokenizer(models.BPE())
 
-    # Use simple whitespace + ByteLevel pre-tokenizer
-    # This respects word boundaries for space-separated languages
-    # while still handling non-space-separated languages reasonably well
-    tokenizer.pre_tokenizer = pre_tokenizers.Sequence(
+    # Use ByteLevel pre-tokenizer with prefix space handling
+    # This handles both space-separated and non-space-separated languages properly
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(
+        add_prefix_space=True  # This preserves spaces correctly
+    )
+    # Use ByteLevel decoder with leading space trimming
+    tokenizer.decoder = decoders.Sequence(
         [
-            pre_tokenizers.Whitespace(),  # Split on whitespace first
-            pre_tokenizers.ByteLevel(
-                add_prefix_space=False
-            ),  # Then byte-level encoding
+            decoders.ByteLevel(),
+            decoders.Strip(
+                content=" ", left=True, right=False
+            ),  # Remove leading space only
         ]
     )
-    tokenizer.decoder = decoders.ByteLevel()
 
     # Conservative normalization for multilingual support
     print("Setting up conservative normalization...")
@@ -149,16 +154,23 @@ def train_tokenizer():
     )
 
     print("Training tokenizer on multilingual data...")
+    print("This may take several minutes depending on dataset size...")
 
     def multilingual_text_iterator() -> Iterator[str]:
         """Iterate through the interleaved dataset."""
+        count = 0
         for sample in interleaved_dataset:
             text = sample.get("text", "")
             if text and len(text.strip()) > 10:  # Filter very short texts
+                count += 1
+                if count % 5000 == 0:
+                    print(f"  Processed {count:,} samples...")
                 yield text
 
     # Train the tokenizer
+    print("Starting BPE training...")
     tokenizer.train_from_iterator(multilingual_text_iterator(), trainer)
+    print("BPE training completed!")
 
     # Set up post-processor with correct token IDs after training
     print("Setting up post-processor with trained token IDs...")
@@ -180,7 +192,7 @@ def train_tokenizer():
         print("Tokenizer will work but won't automatically add special tokens")
 
     # Save tokenizer
-    output_dir = Path("./fineweb_tokenizer")
+    output_dir = Path("./train-500k")
     output_dir.mkdir(exist_ok=True)
 
     tokenizer_file = output_dir / "tokenizer.json"

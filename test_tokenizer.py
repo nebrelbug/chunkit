@@ -8,7 +8,7 @@ from pathlib import Path
 from tokenizers import Tokenizer
 
 
-def test_tokenizer(tokenizer_path: str = "./fineweb_tokenizer/tokenizer.json"):
+def test_tokenizer(tokenizer_path: str = "./train-500k/tokenizer.json"):
     """Load and test a saved tokenizer with proper security handling."""
 
     print(f"Loading tokenizer from {tokenizer_path}...")
