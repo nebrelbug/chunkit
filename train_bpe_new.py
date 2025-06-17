@@ -20,7 +20,6 @@ from tokenizers import (
 
 from dataset_config import (
     DATASETS_CONFIG,
-    INTERLEAVE_PROBABILITIES,
     STREAMING_ENABLED,
     TOTAL_SAMPLES,
 )
@@ -73,20 +72,34 @@ def train_tokenizer():
     # Use HuggingFace's native interleaving
     print("Interleaving datasets with native HuggingFace support...")
     if len(streaming_datasets) > 1:
+        # Calculate interleaving probabilities from dataset config
+        interleave_probabilities = [
+            config["percent"] for config in DATASETS_CONFIG[: len(streaming_datasets)]
+        ]
         interleaved_dataset = interleave_datasets(
-            streaming_datasets, probabilities=INTERLEAVE_PROBABILITIES, seed=42
+            streaming_datasets, probabilities=interleave_probabilities, seed=42
         )
     else:
         interleaved_dataset = streaming_datasets[0]
+        interleave_probabilities = [1.0]
 
-    print(f"Interleaved dataset ready with probabilities: {INTERLEAVE_PROBABILITIES}")
+    print(f"Interleaved dataset ready with probabilities: {interleave_probabilities}")
 
     # BPE tokenizer with byte fallback
     print("Initializing tokenizer with byte fallback...")
     tokenizer = Tokenizer(models.BPE())
 
-    # Use ByteLevel pre-tokenizer for proper Unicode handling
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    # Use simple whitespace + ByteLevel pre-tokenizer
+    # This respects word boundaries for space-separated languages
+    # while still handling non-space-separated languages reasonably well
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence(
+        [
+            pre_tokenizers.Whitespace(),  # Split on whitespace first
+            pre_tokenizers.ByteLevel(
+                add_prefix_space=False
+            ),  # Then byte-level encoding
+        ]
+    )
     tokenizer.decoder = decoders.ByteLevel()
 
     # Conservative normalization for multilingual support
@@ -98,8 +111,9 @@ def train_tokenizer():
         ]
     )
 
-    # Expanded special tokens for various tasks
+    # Special tokens for various tasks (256 total)
     special_tokens = [
+        # Core tokens
         "<|startoftext|>",  # Start of text/document
         "<|endoftext|>",  # End of text/document
         "<|pad|>",  # Padding token
@@ -110,15 +124,28 @@ def train_tokenizer():
         "<|system|>",  # System prompt (for chat/instruction tuning)
     ]
 
+    # Add 248 reserved special tokens (for future use)
+    special_tokens.extend([f"<|reserved_special_token_{i}|>" for i in range(248)])
+
+    print(f"Total special tokens: {len(special_tokens)}")
+
     # Note: Post-processor will be set up after training when we have actual token IDs
 
-    # BPE trainer with larger vocab for multilingual support
+    # BPE trainer with large vocab for multilingual support
+    # Total vocab: 128,000 = 256 special + 256 byte fallbacks + 127,488 trained BPE
     trainer = trainers.BpeTrainer(
-        vocab_size=50000,  # Increased for better multilingual coverage
+        vocab_size=128000,  # Large vocab for comprehensive multilingual coverage
         special_tokens=special_tokens,
         show_progress=True,
         initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
         min_frequency=2,  # Only keep tokens that appear at least twice
+    )
+
+    print(f"Training vocab size: {128000}")
+    print(f"Special tokens: {len(special_tokens)}")
+    print(f"Byte alphabet: {len(pre_tokenizers.ByteLevel.alphabet())}")
+    print(
+        f"Trained BPE tokens: {128000 - len(special_tokens) - len(pre_tokenizers.ByteLevel.alphabet())}"
     )
 
     print("Training tokenizer on multilingual data...")

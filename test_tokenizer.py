@@ -50,6 +50,14 @@ def test_tokenizer(tokenizer_path: str = "./fineweb_tokenizer/tokenizer.json"):
 
     multilingual_tests = [
         {
+            "name": "Spanish",
+            "text": "¡Hola mundo! Este es un test en español. Estamos probando que el tokenizador procese correctamente los caracteres en español, incluyendo acentos y la letra ñ. España y América Latina tienen una rica diversidad cultural.",
+        },
+        {
+            "name": "Hindi",
+            "text": "नमस्ते दुनिया! यह हिंदी भाषा का परीक्षण है। हम देख रहे हैं कि टोकनाइज़र देवनागरी लिपि को सही तरीके से संसाधित करता है या नहीं। भारत एक विविधतापूर्ण देश है।",
+        },
+        {
             "name": "Russian",
             "text": "Привет, как дела? Это тест русского языка. Мы проверяем, что токенизатор правильно обрабатывает кириллические символы. Россия — большая страна с богатой историей и культурой. Москва является столицей России.",
         },
@@ -67,7 +75,7 @@ def test_tokenizer(tokenizer_path: str = "./fineweb_tokenizer/tokenizer.json"):
         },
         {
             "name": "Mixed Languages",
-            "text": "Hello world! 你好世界! Привет мир! こんにちは世界! Hallo Welt! This sentence mixes English, Chinese, Russian, Japanese, and German. 这个句子混合了多种语言。",
+            "text": "Hello world! ¡Hola mundo! 你好世界! नमस्ते दुनिया! Привет мир! こんにちは世界! Hallo Welt! This sentence mixes multiple languages including Spanish, Chinese, Hindi, Russian, Japanese, and German.",
         },
     ]
 
@@ -100,9 +108,11 @@ def test_tokenizer(tokenizer_path: str = "./fineweb_tokenizer/tokenizer.json"):
     # Test files with substantial content in different languages
     test_files = [
         {"name": "English", "file": "sample_texts/english.txt"},
+        {"name": "Spanish", "file": "sample_texts/spanish.txt"},
         {"name": "Chinese", "file": "sample_texts/chinese.txt"},
         {"name": "Russian", "file": "sample_texts/russian.txt"},
         {"name": "Japanese", "file": "sample_texts/japanese.txt"},
+        {"name": "Hindi", "file": "sample_texts/hindi.txt"},
         {"name": "Arabic", "file": "sample_texts/arabic.txt"},
         {"name": "German", "file": "sample_texts/german.txt"},
     ]
