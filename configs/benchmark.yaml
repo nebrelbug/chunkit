@@ -1,57 +1,59 @@
-# Single Benchmark Configuration
-# Comprehensive tokenizer evaluation across language groups
+# Comprehensive Tokenizer Benchmark Configuration
+# Evaluates tokenizers across diverse languages and programming domains
 
 benchmark:
-  total_samples: 10000  # Reduced for faster testing
+  total_samples: 20000
   max_text_length: 2048
   output_dir: "./benchmarks"
 
-# Configure which external tokenizers to test
+# External tokenizers to evaluate
 tokenizers:
   - name: "GPT-2"
     model: "gpt2"
-    enabled: true
   
   - name: "GPT-4"
     model: "Xenova/gpt-4"
-    enabled: true
   
   - name: "LLaMA-3.3"
     model: "meta-llama/Llama-3.3-70B-Instruct"
-    enabled: false  # Disable for faster testing
+  
+  - name: "Gemma"
+    model: "google/gemma-7b"
   
   - name: "Mixtral"
     model: "mistralai/Mixtral-8x22B-Instruct-v0.1"
-    enabled: false
-    requires_sentencepiece: true
 
-# Auto-discover custom tokenizers
+# Custom tokenizers from ./tokenizers directory
 custom_tokenizers:
   enabled: true
   directory: "./tokenizers"
   name_pattern: "Custom-{folder_name}"
 
-# Dataset groups for structured evaluation
+# Language groups organized by resource level
 dataset_groups:
   - name: "High-Resource Languages"
-    description: "English, Chinese, Spanish - most common world languages"
-    sample_allocation: 0.4  # 40% of total samples (120 samples)
+    description: "Major world languages with abundant training data"
+    sample_allocation: 0.35
     datasets:
       - path: "HuggingFaceFW/fineweb"
         subsets:
-          - name: "sample-10BT"
+          - name: "sample-10BT"  # English
             text_column: "text"
       
       - path: "HuggingFaceFW/fineweb-2"
         subsets:
-          - name: "cmn_Hani"  # Chinese
+          - name: "cmn_Hani"  # Chinese (Simplified)
             text_column: "text"
           - name: "spa_Latn"  # Spanish
             text_column: "text"
+          - name: "arb_Arab"  # Arabic (Standard)
+            text_column: "text"
+          - name: "rus_Cyrl"  # Russian
+            text_column: "text"
 
   - name: "Mid-Resource Languages"
-    description: "German, French, Japanese - common languages"
-    sample_allocation: 0.3  # 30% of total samples (90 samples)
+    description: "Common languages with moderate training data"
+    sample_allocation: 0.25
     datasets:
       - path: "HuggingFaceFW/fineweb-2"
         subsets:
@@ -59,14 +61,51 @@ dataset_groups:
             text_column: "text"
           - name: "fra_Latn"  # French
             text_column: "text"
+          - name: "jpn_Jpan"  # Japanese
+            text_column: "text"
+          - name: "kor_Hang"  # Korean
+            text_column: "text"
+          - name: "ita_Latn"  # Italian
+            text_column: "text"
+          - name: "por_Latn"  # Portuguese
+            text_column: "text"
+
+  - name: "Low-Resource Languages"
+    description: "Rare and endangered languages with limited data"
+    sample_allocation: 0.15
+    datasets:
+      - path: "HuggingFaceFW/fineweb-2"
+        subsets:
+          - name: "swh_Latn"  # Swahili
+            text_column: "text"
+          - name: "hau_Latn"  # Hausa
+            text_column: "text"
+          - name: "amh_Ethi"  # Amharic
+            text_column: "text"
+          - name: "yor_Latn"  # Yoruba
+            text_column: "text"
+          - name: "ibo_Latn"  # Igbo
+            text_column: "text"
 
   - name: "Programming Languages"
-    description: "Python, JavaScript"
-    sample_allocation: 0.3  # 30% of total samples (90 samples)
+    description: "Popular programming and markup languages"
+    sample_allocation: 0.25
     datasets:
       - path: "bigcode/starcoderdata"
         subsets:
           - name: "python"
             text_column: "content"
           - name: "javascript"
+            text_column: "content"
+          - name: "typescript"
+            text_column: "content"
+          - name: "java"
+            text_column: "content"
+          - name: "cpp"
+            text_column: "content"
+          - name: "c"
+            text_column: "content"
+          - name: "go"
+            text_column: "content"
+          - name: "rust"
             text_column: "content" 

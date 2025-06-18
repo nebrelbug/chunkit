@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-Tokenizer Manager
-
-Handles loading and managing different types of tokenizers for benchmarking.
+Tokenizer Manager - Handles loading and managing different types of tokenizers.
 """
 
 import logging
@@ -32,14 +30,12 @@ class TokenizerManager:
         # Load external tokenizers
         if hasattr(self.config, "tokenizers"):
             for tokenizer_cfg in self.config.tokenizers:
-                if tokenizer_cfg.get("enabled", True):
-                    self._load_external_tokenizer(tokenizer_cfg)
+                self._load_external_tokenizer(tokenizer_cfg)
 
         # Load custom tokenizers
-        if hasattr(
-            self.config, "custom_tokenizers"
-        ) and self.config.custom_tokenizers.get("enabled", True):
-            self._load_custom_tokenizers(self.config.custom_tokenizers)
+        custom_config = getattr(self.config, "custom_tokenizers", {})
+        if custom_config.get("enabled", True):
+            self._load_custom_tokenizers(custom_config)
 
         logger.info(f"Loaded {len(self.tokenizers)} tokenizers total")
 
@@ -51,25 +47,16 @@ class TokenizerManager:
         logger.info(f"Loading tokenizer: {name}")
 
         try:
-            # Handle special requirements
-            if tokenizer_cfg.get("requires_sentencepiece", False):
-                try:
-                    import sentencepiece
-                except ImportError:
-                    logger.warning(
-                        f"Skipping {name}: sentencepiece not installed. Run: pip install sentencepiece"
-                    )
-                    return
-
-            # Load tokenizer with appropriate settings
+            # Prepare loading arguments
             load_kwargs = {}
             if tokenizer_cfg.get("trust_remote_code", False):
                 load_kwargs["trust_remote_code"] = True
 
+            # Load tokenizer with retry logic
             try:
                 tokenizer = AutoTokenizer.from_pretrained(model, **load_kwargs)
             except Exception as first_error:
-                # If it fails and trust_remote_code not already set, try with it
+                # Retry with trust_remote_code if needed
                 if "trust_remote_code" in str(first_error) and not load_kwargs.get(
                     "trust_remote_code"
                 ):
@@ -80,7 +67,7 @@ class TokenizerManager:
                 else:
                     raise first_error
 
-            self._store_tokenizer(name, tokenizer)
+            self.tokenizers[name] = tokenizer
             logger.info(f"Successfully loaded {name}")
 
         except Exception as e:
@@ -99,6 +86,7 @@ class TokenizerManager:
             )
             return
 
+        # Search for tokenizer.json files
         for tokenizer_path in tokenizers_dir.rglob("tokenizer.json"):
             try:
                 # Extract folder name for naming
@@ -109,31 +97,28 @@ class TokenizerManager:
                     else "Custom"
                 )
 
-                # Clean up the name for display
-                display_name = self._clean_folder_name(folder_name, name_pattern)
+                # Generate display name
+                display_name = self._format_tokenizer_name(folder_name, name_pattern)
 
                 # Load tokenizer
                 tokenizer = Tokenizer.from_file(str(tokenizer_path))
-                self._store_tokenizer(display_name, tokenizer)
+                self.tokenizers[display_name] = tokenizer
+
                 logger.info(f"Successfully loaded custom tokenizer: {display_name}")
 
             except Exception as e:
                 logger.error(f"Failed to load custom tokenizer {tokenizer_path}: {e}")
 
-    def _clean_folder_name(self, folder_name: str, pattern: str) -> str:
-        """Clean up folder name for display."""
-        # Remove common prefixes and clean up
+    def _format_tokenizer_name(self, folder_name: str, pattern: str) -> str:
+        """Format tokenizer name based on folder and pattern."""
+        # Clean up folder name
         clean_name = folder_name.replace("train-", "").replace("-", "-").title()
 
-        # Apply pattern
+        # Apply naming pattern
         if "{folder_name}" in pattern:
             return pattern.format(folder_name=clean_name)
         else:
             return f"Custom-{clean_name}"
-
-    def _store_tokenizer(self, name: str, tokenizer: Any) -> None:
-        """Store tokenizer."""
-        self.tokenizers[name] = tokenizer
 
     def get_all_tokenizers(self) -> Dict[str, Any]:
         """Get all loaded tokenizers."""

@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-Simplified Benchmark Visualizer
-
-Creates one grouped bar chart per dataset group with performance stats.
+Benchmark Visualizer - Creates charts and visualizations for tokenizer benchmark results.
 """
 
 import logging
@@ -19,97 +17,234 @@ logger = logging.getLogger(__name__)
 class BenchmarkVisualizer:
     """Creates visualizations for tokenizer benchmark results."""
 
-    def __init__(self, output_dir: str = "./benchmarks"):
-        # Create nested directory structure
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Set up matplotlib style
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        # Set up plotting style
         plt.style.use("default")
         sns.set_palette("husl")
 
-    def create_all_visualizations(self, results: List[Dict[str, Any]]) -> None:
-        """Create all visualizations for the benchmark results."""
-        if not results:
-            logger.warning("No results to visualize")
-            return
+    def create_all_visualizations(
+        self, results: List[Dict[str, Any]], output_dir: str
+    ) -> None:
+        """Create all visualizations for benchmark results."""
+        output_path = Path(output_dir)
 
-        # Convert to DataFrame
+        # Convert results to DataFrame
         df = pd.DataFrame(results)
 
-        # Filter out failed results
-        df = df[df["chars_per_token"] > 0]
+        # Filter successful results
+        successful_df = df[df["chars_per_token"] > 0]
 
-        if df.empty:
+        if successful_df.empty:
             logger.warning("No successful results to visualize")
             return
 
-        logger.info(f"Creating visualizations for {len(df)} results...")
+        logger.info(
+            f"Creating visualizations with {len(successful_df)} successful results"
+        )
 
-        # Get unique groups
-        groups = df["group"].unique()
+        # Create grouped bar charts by dataset group
+        self._create_grouped_charts(successful_df, output_path)
 
-        # Create one grouped bar chart per group
-        for group in groups:
-            self._create_group_visualization(df, group)
+        # Create overall comparison chart
+        self._create_overall_comparison(successful_df, output_path)
 
-        # Create overall summary
-        self._create_overall_summary(df)
+        # Create performance heatmap
+        self._create_performance_heatmap(successful_df, output_path)
 
-        logger.info(f"All visualizations saved to {self.output_dir}")
+        # Create summary table
+        self._create_summary_table(successful_df, output_path)
 
-    def _create_group_visualization(self, df: pd.DataFrame, group_name: str) -> None:
-        """Create a grouped bar chart for a specific dataset group."""
-        group_data = df[df["group"] == group_name]
+        logger.info("All visualizations created successfully")
 
-        if group_data.empty:
-            logger.warning(f"No data for group: {group_name}")
+    def _create_grouped_charts(self, df: pd.DataFrame, output_dir: Path) -> None:
+        """Create grouped bar charts for each dataset group."""
+        if "group" not in df.columns:
+            logger.warning("No group information available for grouped charts")
             return
 
-        # Prepare data for grouped bar chart
-        # Group by subset (dataset) and tokenizer, then get mean chars_per_token
-        pivot_data = (
-            group_data.groupby(["subset", "tokenizer"])["chars_per_token"]
-            .mean()
-            .unstack(fill_value=0)
+        groups = df["group"].unique()
+
+        for group in groups:
+            group_df = df[df["group"] == group]
+
+            # Create pivot table for plotting
+            pivot_data = group_df.pivot_table(
+                index="subset",
+                columns="tokenizer",
+                values="chars_per_token",
+                aggfunc="mean",
+            )
+
+            if pivot_data.empty:
+                continue
+
+            # Create grouped bar chart
+            fig, ax = plt.subplots(figsize=(12, 8))
+
+            pivot_data.plot(kind="bar", ax=ax, width=0.8)
+
+            ax.set_title(
+                f"Tokenizer Performance - {group}", fontsize=16, fontweight="bold"
+            )
+            ax.set_xlabel("Dataset", fontsize=12)
+            ax.set_ylabel(
+                "Characters per Token (Higher = Better Compression)", fontsize=12
+            )
+            ax.legend(title="Tokenizer", bbox_to_anchor=(1.05, 1), loc="upper left")
+            ax.grid(True, alpha=0.3)
+
+            # Rotate x-axis labels for better readability
+            plt.xticks(rotation=45, ha="right")
+            plt.tight_layout()
+
+            # Save chart
+            filename = (
+                f"performance_{group.lower().replace(' ', '_').replace('-', '_')}.png"
+            )
+            filepath = output_dir / filename
+            plt.savefig(filepath, dpi=300, bbox_inches="tight")
+            plt.close()
+
+            logger.info(f"Created grouped chart: {filename}")
+
+    def _create_overall_comparison(self, df: pd.DataFrame, output_dir: Path) -> None:
+        """Create overall tokenizer comparison scatter plot: vocab size vs compression."""
+        # Calculate average performance per tokenizer
+        tokenizer_avg = df.groupby("tokenizer")["chars_per_token"].mean()
+
+        # Get vocabulary sizes for each tokenizer
+        vocab_sizes = {}
+        tokenizer_names = tokenizer_avg.index.tolist()
+
+        # We need to get vocab sizes from the actual tokenizers
+        # This requires access to the tokenizer manager, so we'll estimate based on known tokenizers
+        known_vocab_sizes = {
+            "GPT-2": 50257,
+            "GPT-4": 100256,
+            "LLaMA-3.3": 128000,
+            "Gemma": 256000,
+            "Mixtral": 32000,
+        }
+
+        # Extract vocab sizes, handling custom tokenizers
+        for tokenizer_name in tokenizer_names:
+            if tokenizer_name in known_vocab_sizes:
+                vocab_sizes[tokenizer_name] = known_vocab_sizes[tokenizer_name]
+            elif tokenizer_name.startswith("Custom-"):
+                # For custom tokenizers, estimate based on typical BPE sizes
+                vocab_sizes[tokenizer_name] = 32000  # Common BPE vocab size
+            else:
+                # Default estimate for unknown tokenizers
+                vocab_sizes[tokenizer_name] = 50000
+
+        # Create scatter plot data
+        x_values = [vocab_sizes[name] for name in tokenizer_names]
+        y_values = [tokenizer_avg[name] for name in tokenizer_names]
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # Create scatter plot with different colors for each tokenizer
+        colors = plt.cm.Set3(range(len(tokenizer_names)))
+        scatter = ax.scatter(
+            x_values,
+            y_values,
+            c=colors,
+            s=100,
+            alpha=0.7,
+            edgecolors="black",
+            linewidth=1,
         )
 
-        # Create figure
-        fig, ax = plt.subplots(1, 1, figsize=(14, 10))
+        # Add labels for each point
+        for i, name in enumerate(tokenizer_names):
+            ax.annotate(
+                name,
+                (x_values[i], y_values[i]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=10,
+                fontweight="bold",
+            )
 
-        # Create grouped bar chart
-        pivot_data.plot(kind="bar", ax=ax, width=0.8, rot=45)
-
-        # Customize the plot
         ax.set_title(
-            f"{group_name}\nCompression Efficiency by Dataset and Tokenizer",
+            "Tokenizer Performance: Vocabulary Size vs Compression Efficiency",
             fontsize=16,
             fontweight="bold",
-            pad=20,
         )
-        ax.set_xlabel("Dataset", fontsize=12, fontweight="bold")
+        ax.set_xlabel("Vocabulary Size", fontsize=12)
         ax.set_ylabel(
-            "Characters per Token (Higher = Better)", fontsize=12, fontweight="bold"
+            "Average Characters per Token (Higher = Better Compression)", fontsize=12
+        )
+        ax.grid(True, alpha=0.3)
+
+        # Add trend line if we have enough points
+        if len(x_values) > 2:
+            import numpy as np
+
+            z = np.polyfit(x_values, y_values, 1)
+            p = np.poly1d(z)
+            ax.plot(
+                x_values, p(x_values), "r--", alpha=0.8, linewidth=2, label="Trend line"
+            )
+            ax.legend()
+
+        # Format x-axis to show vocabulary sizes nicely
+        ax.ticklabel_format(style="scientific", axis="x", scilimits=(0, 0))
+
+        plt.tight_layout()
+        plt.savefig(output_dir / "overall_comparison.png", dpi=300, bbox_inches="tight")
+        plt.close()
+
+        logger.info("Created vocabulary size vs compression scatter plot")
+
+    def _create_performance_heatmap(self, df: pd.DataFrame, output_dir: Path) -> None:
+        """Create performance heatmap."""
+        # Create pivot table for heatmap
+        pivot_data = df.pivot_table(
+            index="tokenizer",
+            columns="dataset",
+            values="chars_per_token",
+            aggfunc="mean",
         )
 
-        # Improve legend
-        ax.legend(
-            title="Tokenizer", bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=10
+        if pivot_data.empty:
+            return
+
+        fig, ax = plt.subplots(figsize=(16, 8))
+
+        sns.heatmap(
+            pivot_data,
+            annot=True,
+            fmt=".3f",
+            cmap="RdYlGn",
+            center=pivot_data.mean().mean(),
+            ax=ax,
+            cbar_kws={"label": "Characters per Token"},
         )
 
-        # Add value labels on bars
-        for container in ax.containers:
-            ax.bar_label(container, fmt="%.2f", fontsize=8, rotation=90, padding=3)
+        ax.set_title("Tokenizer Performance Heatmap", fontsize=16, fontweight="bold")
+        ax.set_xlabel("Dataset", fontsize=12)
+        ax.set_ylabel("Tokenizer", fontsize=12)
 
-        # Add grid for better readability
-        ax.grid(axis="y", alpha=0.3, linestyle="--")
+        plt.xticks(rotation=45, ha="right")
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(
+            output_dir / "performance_heatmap.png", dpi=300, bbox_inches="tight"
+        )
+        plt.close()
 
-        # Calculate detailed statistics
-        group_stats = (
-            group_data.groupby("tokenizer")
+        logger.info("Created performance heatmap")
+
+    def _create_summary_table(self, df: pd.DataFrame, output_dir: Path) -> None:
+        """Create summary statistics table."""
+        # Calculate summary statistics
+        summary_stats = (
+            df.groupby("tokenizer")
             .agg(
                 {
-                    "chars_per_token": ["mean", "std", "count"],
+                    "chars_per_token": ["mean", "std", "min", "max"],
                     "tokens_per_second": ["mean", "std"],
                     "samples_processed": "sum",
                 }
@@ -118,143 +253,43 @@ class BenchmarkVisualizer:
         )
 
         # Flatten column names
-        group_stats.columns = ["_".join(col).strip() for col in group_stats.columns]
+        summary_stats.columns = [
+            "_".join(col).strip() for col in summary_stats.columns.values
+        ]
 
-        # Create stats table - make it full width and larger text
-        stats_text = self._format_stats_table(group_stats)
+        # Create figure for table
+        fig, ax = plt.subplots(figsize=(16, 8))
+        ax.axis("tight")
+        ax.axis("off")
 
-        # Position stats box to span full width
-        fig.text(
-            0.1,
-            0.02,
-            stats_text,
-            fontsize=10,
-            fontfamily="monospace",
-            verticalalignment="bottom",
-            bbox=dict(boxstyle="round,pad=0.8", facecolor="lightgray", alpha=0.9),
-            transform=fig.transFigure,
+        # Create table
+        table = ax.table(
+            cellText=summary_stats.values,
+            rowLabels=summary_stats.index,
+            colLabels=summary_stats.columns,
+            cellLoc="center",
+            loc="center",
+            colWidths=[0.12] * len(summary_stats.columns),
         )
 
-        plt.tight_layout()
-        plt.subplots_adjust(bottom=0.35)  # Make more room for larger stats table
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 2)
 
-        # Save the plot
-        safe_name = group_name.lower().replace(" ", "_").replace("-", "_")
-        filename = f"benchmark_{safe_name}.png"
-        plt.savefig(self.output_dir / filename, dpi=300, bbox_inches="tight")
-        plt.close()
+        # Style the table
+        for i in range(len(summary_stats.columns)):
+            table[(0, i)].set_facecolor("#4CAF50")
+            table[(0, i)].set_text_props(weight="bold", color="white")
 
-        logger.info(f"Created grouped bar chart: {filename}")
-
-    def _format_stats_table(self, stats_df: pd.DataFrame) -> str:
-        """Format statistics as a readable table with larger text."""
-        lines = ["DETAILED STATISTICS"]
-        lines.append("=" * 100)
-        lines.append(
-            f"{'Tokenizer':<25} {'Avg C/T':<10} {'Std C/T':<10} {'Avg T/s':<10} {'Std T/s':<10} {'Samples':<10}"
-        )
-        lines.append("=" * 100)
-
-        for tokenizer, row in stats_df.iterrows():
-            lines.append(
-                f"{tokenizer:<25} "
-                f"{row['chars_per_token_mean']:<10.3f} "
-                f"{row['chars_per_token_std']:<10.3f} "
-                f"{row['tokens_per_second_mean']:<10.0f} "
-                f"{row['tokens_per_second_std']:<10.0f} "
-                f"{int(row['samples_processed_sum']):<10}"
-            )
-
-        return "\n".join(lines)
-
-    def _create_overall_summary(self, df: pd.DataFrame) -> None:
-        """Create an overall summary visualization."""
-        # Overall performance across all groups
-        overall_stats = (
-            df.groupby("tokenizer")
-            .agg(
-                {
-                    "chars_per_token": ["mean", "std"],
-                    "tokens_per_second": ["mean", "std"],
-                    "samples_processed": "sum",
-                }
-            )
-            .round(3)
-        )
-
-        # Create summary chart
-        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
-
-        # Overall compression efficiency
-        compression_data = (
-            df.groupby("tokenizer")["chars_per_token"]
-            .mean()
-            .sort_values(ascending=False)
-        )
-        bars = ax.bar(
-            range(len(compression_data)),
-            compression_data.values,
-            color=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"][
-                : len(compression_data)
-            ],
-        )
+        for i in range(len(summary_stats.index)):
+            table[(i + 1, -1)].set_facecolor("#E8F5E8")
 
         ax.set_title(
-            "Overall Tokenizer Performance\n(Average Compression Efficiency Across All Groups)",
-            fontsize=16,
-            fontweight="bold",
-            pad=20,
-        )
-        ax.set_ylabel("Characters per Token (Higher = Better)", fontsize=12)
-        ax.set_xticks(range(len(compression_data)))
-        ax.set_xticklabels(compression_data.index, rotation=45, ha="right", fontsize=11)
-        ax.grid(axis="y", alpha=0.3)
-
-        # Add value labels on bars
-        for i, (bar, value) in enumerate(zip(bars, compression_data.values)):
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.01,
-                f"{value:.3f}",
-                ha="center",
-                va="bottom",
-                fontsize=10,
-                fontweight="bold",
-            )
-
-        # Add summary stats
-        best_tokenizer = compression_data.index[0]
-        best_score = compression_data.iloc[0]
-        total_samples = df["samples_processed"].sum()
-
-        summary_text = f"""
-BENCHMARK SUMMARY:
-• Best Overall: {best_tokenizer} ({best_score:.3f} chars/token)
-• Total Samples: {total_samples:,}
-• Groups Tested: {df["group"].nunique()}
-• Tokenizers: {df["tokenizer"].nunique()}
-        """.strip()
-
-        ax.text(
-            0.02,
-            0.98,
-            summary_text,
-            transform=ax.transAxes,
-            fontsize=11,
-            verticalalignment="top",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightblue", alpha=0.8),
+            "Tokenizer Performance Summary", fontsize=16, fontweight="bold", pad=20
         )
 
         plt.tight_layout()
-
-        # Save the plot
-        filename = "benchmark_overall_summary.png"
-        plt.savefig(self.output_dir / filename, dpi=300, bbox_inches="tight")
+        plt.savefig(output_dir / "summary_table.png", dpi=300, bbox_inches="tight")
         plt.close()
 
-        logger.info(f"Created overall summary: {filename}")
-
-        # Also save detailed CSV
-        overall_stats.to_csv(self.output_dir / "overall_performance.csv")
-        df.to_csv(self.output_dir / "detailed_results.csv", index=False)
-        logger.info("Saved detailed results to CSV files")
+        logger.info("Created summary table")
