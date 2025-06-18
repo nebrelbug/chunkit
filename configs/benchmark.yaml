@@ -1,58 +1,72 @@
-# Benchmark configuration for tokenizer evaluation
-# Includes diverse languages and domains for comprehensive testing
+# Single Benchmark Configuration
+# Comprehensive tokenizer evaluation across language groups
 
-training:
-  total_samples: 10_000  # Total samples across all datasets
-  streaming_enabled: true
-  output_dir: "./benchmarks/test1"
-  temperature: 0.3
-  min_samples_per_lang: 100
-  max_samples_per_lang: 1000
+benchmark:
+  total_samples: 10000  # Reduced for faster testing
+  max_text_length: 2048
+  output_dir: "./benchmarks"
 
-datasets:
-  # English - baseline
-  - path: "HuggingFaceFW/fineweb"
-    description: "English web data"
-    subsets:
-      - name: "sample-10BT"
-        priority: 5
+# Configure which external tokenizers to test
+tokenizers:
+  - name: "GPT-2"
+    model: "gpt2"
+    enabled: true
+  
+  - name: "GPT-4"
+    model: "Xenova/gpt-4"
+    enabled: true
+  
+  - name: "LLaMA-3.3"
+    model: "meta-llama/Llama-3.3-70B-Instruct"
+    enabled: false  # Disable for faster testing
+  
+  - name: "Mixtral"
+    model: "mistralai/Mixtral-8x22B-Instruct-v0.1"
+    enabled: false
+    requires_sentencepiece: true
 
-  # Major world languages
-  - path: "HuggingFaceFW/fineweb-2"
-    description: "Multilingual web data"
-    subsets:
-      - name: "rus_Cyrl"  # Russian
-        priority: 4
-      - name: "cmn_Hani"  # Chinese
-        priority: 4
-      - name: "deu_Latn"  # German
-        priority: 4
-      - name: "jpn_Jpan"  # Japanese
-        priority: 4
-      - name: "spa_Latn"  # Spanish
-        priority: 4
-      - name: "fra_Latn"  # French
-        priority: 4
+# Auto-discover custom tokenizers
+custom_tokenizers:
+  enabled: true
+  directory: "./tokenizers"
+  name_pattern: "Custom-{folder_name}"
 
-  # Programming languages
-  - path: "bigcode/starcoderdata"
-    description: "Programming languages"
-    subsets:
-      - name: "python"
-        priority: 4
-        text_column: "content"
-      - name: "javascript"
-        priority: 3
-        text_column: "content"
-      - name: "typescript"
-        priority: 3
-        text_column: "content"
-      - name: "java"
-        priority: 3
-        text_column: "content"
-      - name: "cpp"
-        priority: 3
-        text_column: "content"
-      - name: "go"
-        priority: 3
-        text_column: "content" 
+# Dataset groups for structured evaluation
+dataset_groups:
+  - name: "High-Resource Languages"
+    description: "English, Chinese, Spanish - most common world languages"
+    sample_allocation: 0.4  # 40% of total samples (120 samples)
+    datasets:
+      - path: "HuggingFaceFW/fineweb"
+        subsets:
+          - name: "sample-10BT"
+            text_column: "text"
+      
+      - path: "HuggingFaceFW/fineweb-2"
+        subsets:
+          - name: "cmn_Hani"  # Chinese
+            text_column: "text"
+          - name: "spa_Latn"  # Spanish
+            text_column: "text"
+
+  - name: "Mid-Resource Languages"
+    description: "German, French, Japanese - common languages"
+    sample_allocation: 0.3  # 30% of total samples (90 samples)
+    datasets:
+      - path: "HuggingFaceFW/fineweb-2"
+        subsets:
+          - name: "deu_Latn"  # German
+            text_column: "text"
+          - name: "fra_Latn"  # French
+            text_column: "text"
+
+  - name: "Programming Languages"
+    description: "Python, JavaScript"
+    sample_allocation: 0.3  # 30% of total samples (90 samples)
+    datasets:
+      - path: "bigcode/starcoderdata"
+        subsets:
+          - name: "python"
+            text_column: "content"
+          - name: "javascript"
+            text_column: "content" 

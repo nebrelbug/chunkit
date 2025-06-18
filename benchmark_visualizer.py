@@ -1,391 +1,260 @@
 #!/usr/bin/env python3
 """
-Tokenizer Benchmark Visualizer
+Simplified Benchmark Visualizer
 
-Generate charts and tables from benchmark results for easy comparison.
+Creates one grouped bar chart per dataset group with performance stats.
 """
 
-import argparse
-import json
+import logging
 from pathlib import Path
+from typing import Any, Dict, List
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+logger = logging.getLogger(__name__)
+
 
 class BenchmarkVisualizer:
-    """Visualize tokenizer benchmark results."""
+    """Creates visualizations for tokenizer benchmark results."""
 
-    def __init__(self, results_dir: str):
-        self.results_dir = Path(results_dir)
-        self.df = None
-        self.summary = None
+    def __init__(self, output_dir: str = "./benchmarks"):
+        # Create nested directory structure
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load data
-        self._load_data()
-
-        # Set up plotting style
+        # Set up matplotlib style
         plt.style.use("default")
         sns.set_palette("husl")
 
-    def _load_data(self):
-        """Load benchmark results and summary."""
-        # Load detailed results
-        csv_path = self.results_dir / "benchmark_results.csv"
-        if csv_path.exists():
-            self.df = pd.read_csv(csv_path)
-            print(f"✅ Loaded {len(self.df)} benchmark results")
-        else:
-            raise FileNotFoundError(f"Results file not found: {csv_path}")
+    def create_all_visualizations(self, results: List[Dict[str, Any]]) -> None:
+        """Create all visualizations for the benchmark results."""
+        if not results:
+            logger.warning("No results to visualize")
+            return
 
-        # Load summary
-        summary_path = self.results_dir / "benchmark_summary.json"
-        if summary_path.exists():
-            with open(summary_path, "r") as f:
-                self.summary = json.load(f)
-            print(
-                f"✅ Loaded summary with {len(self.summary['tokenizers'])} tokenizers"
-            )
+        # Convert to DataFrame
+        df = pd.DataFrame(results)
 
-    def create_all_visualizations(self):
-        """Create all visualization charts."""
-        output_dir = self.results_dir / "visualizations"
-        output_dir.mkdir(exist_ok=True)
+        # Filter out failed results
+        df = df[df["chars_per_token"] > 0]
 
-        print("📊 Creating visualizations...")
+        if df.empty:
+            logger.warning("No successful results to visualize")
+            return
 
-        # 1. Overall compression comparison
-        self.plot_compression_by_tokenizer(output_dir / "compression_by_tokenizer.png")
+        logger.info(f"Creating visualizations for {len(df)} results...")
 
-        # 2. Language-specific performance
-        self.plot_compression_by_language(output_dir / "compression_by_language.png")
+        # Get unique groups
+        groups = df["group"].unique()
 
-        # 3. Domain-specific performance
-        self.plot_compression_by_domain(output_dir / "compression_by_domain.png")
+        # Create one grouped bar chart per group
+        for group in groups:
+            self._create_group_visualization(df, group)
 
-        # 4. Heatmap of tokenizer vs language performance
-        self.plot_performance_heatmap(output_dir / "performance_heatmap.png")
+        # Create overall summary
+        self._create_overall_summary(df)
 
-        # 5. Encoding speed comparison
-        self.plot_encoding_speed(output_dir / "encoding_speed.png")
+        logger.info(f"All visualizations saved to {self.output_dir}")
 
-        # 6. Detailed comparison table
-        self.create_comparison_table(output_dir / "comparison_table.html")
+    def _create_group_visualization(self, df: pd.DataFrame, group_name: str) -> None:
+        """Create a grouped bar chart for a specific dataset group."""
+        group_data = df[df["group"] == group_name]
 
-        print(f"✅ All visualizations saved to: {output_dir}")
+        if group_data.empty:
+            logger.warning(f"No data for group: {group_name}")
+            return
 
-    def plot_compression_by_tokenizer(self, output_path: Path):
-        """Plot average compression ratio by tokenizer."""
-        plt.figure(figsize=(12, 6))
-
-        # Calculate average compression by tokenizer
-        avg_compression = (
-            self.df.groupby("tokenizer_name")["compression_ratio"]
-            .agg(["mean", "std"])
-            .reset_index()
-        )
-        avg_compression = avg_compression.sort_values("mean", ascending=False)
-
-        # Create bar plot with error bars
-        plt.bar(
-            avg_compression["tokenizer_name"],
-            avg_compression["mean"],
-            yerr=avg_compression["std"],
-            capsize=5,
-            alpha=0.8,
-        )
-
-        plt.title(
-            "Average Compression Ratio by Tokenizer\n(Higher = Better)",
-            fontsize=14,
-            fontweight="bold",
-        )
-        plt.xlabel("Tokenizer", fontsize=12)
-        plt.ylabel("Compression Ratio (chars/token)", fontsize=12)
-        plt.xticks(rotation=45, ha="right")
-        plt.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-
-        plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        plt.close()
-        print(f"📈 Saved compression comparison: {output_path}")
-
-    def plot_compression_by_language(self, output_path: Path):
-        """Plot compression performance by language."""
-        plt.figure(figsize=(14, 8))
-
-        # Create box plot
-        sns.boxplot(
-            data=self.df, x="language", y="compression_ratio", hue="tokenizer_name"
-        )
-
-        plt.title(
-            "Compression Ratio by Language and Tokenizer",
-            fontsize=14,
-            fontweight="bold",
-        )
-        plt.xlabel("Language", fontsize=12)
-        plt.ylabel("Compression Ratio (chars/token)", fontsize=12)
-        plt.xticks(rotation=45, ha="right")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        plt.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-
-        plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        plt.close()
-        print(f"📈 Saved language comparison: {output_path}")
-
-    def plot_compression_by_domain(self, output_path: Path):
-        """Plot compression performance by domain."""
-        plt.figure(figsize=(10, 6))
-
-        # Create violin plot
-        sns.violinplot(
-            data=self.df, x="domain", y="compression_ratio", hue="tokenizer_name"
-        )
-
-        plt.title(
-            "Compression Ratio by Domain and Tokenizer", fontsize=14, fontweight="bold"
-        )
-        plt.xlabel("Domain", fontsize=12)
-        plt.ylabel("Compression Ratio (chars/token)", fontsize=12)
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        plt.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-
-        plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        plt.close()
-        print(f"📈 Saved domain comparison: {output_path}")
-
-    def plot_performance_heatmap(self, output_path: Path):
-        """Plot heatmap of tokenizer performance across languages."""
-        plt.figure(figsize=(12, 8))
-
-        # Create pivot table
+        # Prepare data for grouped bar chart
+        # Group by subset (dataset) and tokenizer, then get mean chars_per_token
         pivot_data = (
-            self.df.groupby(["tokenizer_name", "language"])["compression_ratio"]
+            group_data.groupby(["subset", "tokenizer"])["chars_per_token"]
             .mean()
-            .unstack()
+            .unstack(fill_value=0)
         )
 
-        # Create heatmap
-        sns.heatmap(
-            pivot_data,
-            annot=True,
-            fmt=".2f",
-            cmap="YlOrRd",
-            cbar_kws={"label": "Compression Ratio (chars/token)"},
-        )
+        # Create figure
+        fig, ax = plt.subplots(1, 1, figsize=(14, 10))
 
-        plt.title(
-            "Tokenizer Performance Heatmap\n(Higher values = Better compression)",
-            fontsize=14,
+        # Create grouped bar chart
+        pivot_data.plot(kind="bar", ax=ax, width=0.8, rot=45)
+
+        # Customize the plot
+        ax.set_title(
+            f"{group_name}\nCompression Efficiency by Dataset and Tokenizer",
+            fontsize=16,
             fontweight="bold",
+            pad=20,
         )
-        plt.xlabel("Language", fontsize=12)
-        plt.ylabel("Tokenizer", fontsize=12)
-        plt.xticks(rotation=45, ha="right")
-        plt.yticks(rotation=0)
-        plt.tight_layout()
-
-        plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        plt.close()
-        print(f"📈 Saved performance heatmap: {output_path}")
-
-    def plot_encoding_speed(self, output_path: Path):
-        """Plot encoding speed comparison."""
-        plt.figure(figsize=(12, 6))
-
-        # Calculate average encoding time by tokenizer
-        avg_speed = (
-            self.df.groupby("tokenizer_name")["encoding_time_ms"]
-            .agg(["mean", "std"])
-            .reset_index()
-        )
-        avg_speed = avg_speed.sort_values("mean")
-
-        # Create bar plot with error bars
-        plt.bar(
-            avg_speed["tokenizer_name"],
-            avg_speed["mean"],
-            yerr=avg_speed["std"],
-            capsize=5,
-            alpha=0.8,
-            color="lightblue",
+        ax.set_xlabel("Dataset", fontsize=12, fontweight="bold")
+        ax.set_ylabel(
+            "Characters per Token (Higher = Better)", fontsize=12, fontweight="bold"
         )
 
-        plt.title(
-            "Average Encoding Speed by Tokenizer\n(Lower = Faster)",
-            fontsize=14,
-            fontweight="bold",
+        # Improve legend
+        ax.legend(
+            title="Tokenizer", bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=10
         )
-        plt.xlabel("Tokenizer", fontsize=12)
-        plt.ylabel("Encoding Time (ms)", fontsize=12)
-        plt.xticks(rotation=45, ha="right")
-        plt.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
 
-        plt.savefig(output_path, dpi=300, bbox_inches="tight")
-        plt.close()
-        print(f"📈 Saved encoding speed comparison: {output_path}")
+        # Add value labels on bars
+        for container in ax.containers:
+            ax.bar_label(container, fmt="%.2f", fontsize=8, rotation=90, padding=3)
 
-    def create_comparison_table(self, output_path: Path):
-        """Create detailed comparison table."""
-        # Calculate comprehensive statistics
-        stats = (
-            self.df.groupby("tokenizer_name")
+        # Add grid for better readability
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+
+        # Calculate detailed statistics
+        group_stats = (
+            group_data.groupby("tokenizer")
             .agg(
                 {
-                    "compression_ratio": ["mean", "std", "min", "max"],
-                    "tokens_per_char": ["mean", "std"],
-                    "encoding_time_ms": ["mean", "std"],
-                    "vocab_size": "first",
+                    "chars_per_token": ["mean", "std", "count"],
+                    "tokens_per_second": ["mean", "std"],
+                    "samples_processed": "sum",
                 }
             )
-            .round(4)
+            .round(3)
         )
 
         # Flatten column names
-        stats.columns = ["_".join(col).strip() for col in stats.columns]
-        stats = stats.reset_index()
+        group_stats.columns = ["_".join(col).strip() for col in group_stats.columns]
 
-        # Rename columns for readability
-        column_mapping = {
-            "tokenizer_name": "Tokenizer",
-            "compression_ratio_mean": "Avg Compression",
-            "compression_ratio_std": "Compression Std",
-            "compression_ratio_min": "Min Compression",
-            "compression_ratio_max": "Max Compression",
-            "tokens_per_char_mean": "Avg Tokens/Char",
-            "tokens_per_char_std": "Tokens/Char Std",
-            "encoding_time_ms_mean": "Avg Encoding Time (ms)",
-            "encoding_time_ms_std": "Encoding Time Std",
-            "vocab_size_first": "Vocab Size",
-        }
-        stats = stats.rename(columns=column_mapping)
+        # Create stats table - make it full width and larger text
+        stats_text = self._format_stats_table(group_stats)
 
-        # Sort by average compression ratio (descending)
-        stats = stats.sort_values("Avg Compression", ascending=False)
+        # Position stats box to span full width
+        fig.text(
+            0.1,
+            0.02,
+            stats_text,
+            fontsize=10,
+            fontfamily="monospace",
+            verticalalignment="bottom",
+            bbox=dict(boxstyle="round,pad=0.8", facecolor="lightgray", alpha=0.9),
+            transform=fig.transFigure,
+        )
 
-        # Create HTML table with styling
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Tokenizer Benchmark Results</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                h1 {{ color: #333; }}
-                table {{ border-collapse: collapse; width: 100%; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                th {{ background-color: #f2f2f2; font-weight: bold; }}
-                tr:nth-child(even) {{ background-color: #f9f9f9; }}
-                .best {{ background-color: #d4edda !important; }}
-                .summary {{ background-color: #e7f3ff; padding: 15px; margin: 20px 0; border-radius: 5px; }}
-            </style>
-        </head>
-        <body>
-            <h1>Tokenizer Benchmark Results</h1>
-            
-            <div class="summary">
-                <h2>Summary</h2>
-                <p><strong>Total Tests:</strong> {self.summary["total_tests"]:,}</p>
-                <p><strong>Tokenizers Tested:</strong> {", ".join(self.summary["tokenizers"])}</p>
-                <p><strong>Languages:</strong> {", ".join(self.summary["languages"])}</p>
-                <p><strong>Best Overall:</strong> {self.summary["best_tokenizer_overall"]}</p>
-            </div>
-            
-            <h2>Detailed Comparison</h2>
-            {stats.to_html(index=False, classes="table", escape=False)}
-            
-            <h2>Best Tokenizer by Language</h2>
-            <ul>
-        """
+        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.35)  # Make more room for larger stats table
 
-        for lang, tokenizer in self.summary["best_tokenizer_by_language"].items():
-            html += f"<li><strong>{lang}:</strong> {tokenizer}</li>"
+        # Save the plot
+        safe_name = group_name.lower().replace(" ", "_").replace("-", "_")
+        filename = f"benchmark_{safe_name}.png"
+        plt.savefig(self.output_dir / filename, dpi=300, bbox_inches="tight")
+        plt.close()
 
-        html += """
-            </ul>
-        </body>
-        </html>
-        """
+        logger.info(f"Created grouped bar chart: {filename}")
 
-        with open(output_path, "w") as f:
-            f.write(html)
+    def _format_stats_table(self, stats_df: pd.DataFrame) -> str:
+        """Format statistics as a readable table with larger text."""
+        lines = ["DETAILED STATISTICS"]
+        lines.append("=" * 100)
+        lines.append(
+            f"{'Tokenizer':<25} {'Avg C/T':<10} {'Std C/T':<10} {'Avg T/s':<10} {'Std T/s':<10} {'Samples':<10}"
+        )
+        lines.append("=" * 100)
 
-        print(f"📋 Saved comparison table: {output_path}")
+        for tokenizer, row in stats_df.iterrows():
+            lines.append(
+                f"{tokenizer:<25} "
+                f"{row['chars_per_token_mean']:<10.3f} "
+                f"{row['chars_per_token_std']:<10.3f} "
+                f"{row['tokens_per_second_mean']:<10.0f} "
+                f"{row['tokens_per_second_std']:<10.0f} "
+                f"{int(row['samples_processed_sum']):<10}"
+            )
 
-    def print_summary(self):
-        """Print benchmark summary to console."""
-        print("\n" + "=" * 60)
-        print("📊 TOKENIZER BENCHMARK SUMMARY")
-        print("=" * 60)
+        return "\n".join(lines)
 
-        print(f"Total tests run: {self.summary['total_tests']:,}")
-        print(f"Tokenizers tested: {len(self.summary['tokenizers'])}")
-        print(f"Languages tested: {len(self.summary['languages'])}")
+    def _create_overall_summary(self, df: pd.DataFrame) -> None:
+        """Create an overall summary visualization."""
+        # Overall performance across all groups
+        overall_stats = (
+            df.groupby("tokenizer")
+            .agg(
+                {
+                    "chars_per_token": ["mean", "std"],
+                    "tokens_per_second": ["mean", "std"],
+                    "samples_processed": "sum",
+                }
+            )
+            .round(3)
+        )
 
-        print(f"\n🏆 BEST TOKENIZER OVERALL: {self.summary['best_tokenizer_overall']}")
+        # Create summary chart
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
 
-        print("\n📈 AVERAGE COMPRESSION BY TOKENIZER:")
-        for tokenizer, ratio in sorted(
-            self.summary["avg_compression_by_tokenizer"].items(),
-            key=lambda x: x[1],
-            reverse=True,
-        ):
-            print(f"  {tokenizer:15s}: {ratio:.3f} chars/token")
+        # Overall compression efficiency
+        compression_data = (
+            df.groupby("tokenizer")["chars_per_token"]
+            .mean()
+            .sort_values(ascending=False)
+        )
+        bars = ax.bar(
+            range(len(compression_data)),
+            compression_data.values,
+            color=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"][
+                : len(compression_data)
+            ],
+        )
 
-        print("\n🌍 BEST TOKENIZER BY LANGUAGE:")
-        for lang, tokenizer in self.summary["best_tokenizer_by_language"].items():
-            print(f"  {lang:12s}: {tokenizer}")
+        ax.set_title(
+            "Overall Tokenizer Performance\n(Average Compression Efficiency Across All Groups)",
+            fontsize=16,
+            fontweight="bold",
+            pad=20,
+        )
+        ax.set_ylabel("Characters per Token (Higher = Better)", fontsize=12)
+        ax.set_xticks(range(len(compression_data)))
+        ax.set_xticklabels(compression_data.index, rotation=45, ha="right", fontsize=11)
+        ax.grid(axis="y", alpha=0.3)
 
-        print("\n" + "=" * 60)
+        # Add value labels on bars
+        for i, (bar, value) in enumerate(zip(bars, compression_data.values)):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.01,
+                f"{value:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
+            )
 
+        # Add summary stats
+        best_tokenizer = compression_data.index[0]
+        best_score = compression_data.iloc[0]
+        total_samples = df["samples_processed"].sum()
 
-def main():
-    """Main CLI interface for benchmark visualization."""
-    parser = argparse.ArgumentParser(
-        description="Visualize tokenizer benchmark results",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python benchmark_visualizer.py --results ./benchmark_results
-  python benchmark_visualizer.py --results ./my_benchmark --summary-only
-        """,
-    )
+        summary_text = f"""
+BENCHMARK SUMMARY:
+• Best Overall: {best_tokenizer} ({best_score:.3f} chars/token)
+• Total Samples: {total_samples:,}
+• Groups Tested: {df["group"].nunique()}
+• Tokenizers: {df["tokenizer"].nunique()}
+        """.strip()
 
-    parser.add_argument(
-        "--results",
-        "-r",
-        type=str,
-        required=True,
-        help="Path to benchmark results directory",
-    )
-    parser.add_argument(
-        "--summary-only",
-        action="store_true",
-        help="Only print summary, don't create visualizations",
-    )
+        ax.text(
+            0.02,
+            0.98,
+            summary_text,
+            transform=ax.transAxes,
+            fontsize=11,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightblue", alpha=0.8),
+        )
 
-    args = parser.parse_args()
+        plt.tight_layout()
 
-    try:
-        # Initialize visualizer
-        visualizer = BenchmarkVisualizer(args.results)
+        # Save the plot
+        filename = "benchmark_overall_summary.png"
+        plt.savefig(self.output_dir / filename, dpi=300, bbox_inches="tight")
+        plt.close()
 
-        # Print summary
-        visualizer.print_summary()
+        logger.info(f"Created overall summary: {filename}")
 
-        # Create visualizations unless summary-only
-        if not args.summary_only:
-            visualizer.create_all_visualizations()
-
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        raise
-
-
-if __name__ == "__main__":
-    main()
+        # Also save detailed CSV
+        overall_stats.to_csv(self.output_dir / "overall_performance.csv")
+        df.to_csv(self.output_dir / "detailed_results.csv", index=False)
+        logger.info("Saved detailed results to CSV files")
